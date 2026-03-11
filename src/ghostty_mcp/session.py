@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -45,7 +46,7 @@ class SessionManager:
         """Create a new terminal session and start tracking it."""
         config = SurfaceConfig(
             command=command,
-            working_directory=working_directory,
+            working_directory=working_directory or os.getcwd(),
             wait_after_command=command is not None,
             environment=environment or {},
         )

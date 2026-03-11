@@ -131,11 +131,31 @@ end tell"""
 
     def create_tab(self, config: SurfaceConfig | None = None) -> str:
         """Open a new tab and return its terminal id."""
-        return self._create_surface("new tab", config)
+        config = config or SurfaceConfig()
+        config_block = self._build_config_block(config)
+        script = f"""\
+tell application "Ghostty"
+    {config_block}
+    new tab in front window with configuration cfg
+    delay 0.3
+    set termId to id of focused terminal of selected tab of front window
+    return termId
+end tell"""
+        return self._run_applescript(script)
 
     def create_window(self, config: SurfaceConfig | None = None) -> str:
         """Open a new window and return its terminal id."""
-        return self._create_surface("new window", config)
+        config = config or SurfaceConfig()
+        config_block = self._build_config_block(config)
+        script = f"""\
+tell application "Ghostty"
+    {config_block}
+    new window with configuration cfg
+    delay 0.3
+    set termId to id of focused terminal of selected tab of front window
+    return termId
+end tell"""
+        return self._run_applescript(script)
 
     def create_split(
         self,
@@ -143,55 +163,45 @@ end tell"""
         config: SurfaceConfig | None = None,
     ) -> str:
         """Open a new split and return its terminal id."""
-        return self._create_surface(f"split direction {direction}", config)
-
-    def _create_surface(
-        self,
-        command: str,
-        config: SurfaceConfig | None,
-    ) -> str:
-        if config:
-            config_block = self._build_config_block(config)
-            script = f"""\
+        config = config or SurfaceConfig()
+        config_block = self._build_config_block(config)
+        script = f"""\
 tell application "Ghostty"
     {config_block}
-    {command} with surfaceConfig
-    set termId to id of focused terminal of front window
-    return termId
-end tell"""
-        else:
-            script = f"""\
-tell application "Ghostty"
-    {command}
-    set termId to id of focused terminal of front window
+    set currentTerm to focused terminal of selected tab of front window
+    set t2 to split currentTerm direction {direction} with configuration cfg
+    delay 0.3
+    set termId to id of focused terminal of selected tab of front window
     return termId
 end tell"""
         return self._run_applescript(script)
 
     @staticmethod
     def _build_config_block(config: SurfaceConfig) -> str:
-        lines = ["set surfaceConfig to new surface configuration"]
+        lines = ["set cfg to new surface configuration"]
         if config.command:
             escaped = config.command.replace('"', '\\"')
-            lines.append(f'set command of surfaceConfig to "{escaped}"')
+            lines.append(f'set command of cfg to "{escaped}"')
         if config.working_directory:
             escaped = config.working_directory.replace('"', '\\"')
             lines.append(
-                f'set initial working directory of surfaceConfig to "{escaped}"',
+                f'set initial working directory of cfg to "{escaped}"',
             )
         if config.initial_input:
             escaped = config.initial_input.replace('"', '\\"')
             lines.append(
-                f'set initial input of surfaceConfig to "{escaped}"',
+                f'set initial input of cfg to "{escaped}"',
             )
         if config.wait_after_command:
-            lines.append("set wait after command of surfaceConfig to true")
-        for key, value in config.environment.items():
-            k = key.replace('"', '\\"')
-            v = value.replace('"', '\\"')
+            lines.append("set wait after command of cfg to true")
+        if config.environment:
+            env_items = [
+                f'"{k.replace(chr(34), chr(92)+chr(34))}={v.replace(chr(34), chr(92)+chr(34))}"'
+                for k, v in config.environment.items()
+            ]
+            env_list = ", ".join(env_items)
             lines.append(
-                "set environment of surfaceConfig to"
-                f' environment of surfaceConfig & {{"{k}={v}"}}',
+                f"set environment variables of cfg to {{{env_list}}}",
             )
         return "\n    ".join(lines)
 
@@ -200,15 +210,28 @@ end tell"""
     # ------------------------------------------------------------------
 
     def send_input(self, terminal_id: str, text: str) -> None:
-        """Send text input to a terminal."""
-        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+        """Send text input to a terminal.
+
+        The special token ``<>enter<>`` is converted to a ``send key "enter"``
+        event, allowing callers to submit commands while still supporting
+        literal newlines via ``input text``.
+        """
+        parts = text.split("<>enter<>")
+        commands: list[str] = []
+        for i, part in enumerate(parts):
+            if part:
+                escaped = part.replace("\\", "\\\\").replace('"', '\\"')
+                commands.append(f'input text "{escaped}" to term')
+            if i < len(parts) - 1:
+                commands.append('send key "enter" to term')
+        actions = "\n                    ".join(commands)
         script = f"""\
 tell application "Ghostty"
     repeat with w in windows
         repeat with t in tabs of w
             repeat with term in terminals of t
                 if id of term is "{terminal_id}" then
-                    input text "{escaped}" to term
+                    {actions}
                     return
                 end if
             end repeat

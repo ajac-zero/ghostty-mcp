@@ -59,7 +59,7 @@ def send_input(terminal_id: str, text: str) -> str:
 
     Args:
         terminal_id: The session's terminal ID.
-        text: Text to send. Include "\\n" to simulate pressing Enter.
+        text: Text to send. Include "<>enter<>" to simulate pressing Enter.
 
     Returns:
         Confirmation message.
