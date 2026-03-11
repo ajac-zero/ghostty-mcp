@@ -10,7 +10,8 @@ mcp = FastMCP(
     "ghostty-mcp",
     instructions=(
         "MCP server for managing Ghostty terminal sessions. "
-        "You can create sessions, send input, read output, and list sessions."
+        "Use create_session to start terminals, input_text to paste text, "
+        "send_key to send keyboard inputs (enter, ctrl+c, etc.), and read_output to see results."
     ),
 )
 manager = SessionManager()
@@ -58,19 +59,53 @@ def create_session(  # noqa: PLR0913
 
 
 @mcp.tool()
-def send_input(terminal_id: str, text: str) -> str:
-    r"""Send text input to a terminal session.
+def input_text(terminal_id: str, text: str) -> str:
+    r"""Send text to a terminal session (paste-style).
+
+    This tool pastes text into the terminal WITHOUT pressing Enter. It's like using
+    the clipboard to paste—the text appears in the terminal but is not executed.
+
+    To submit a command, you must separately call send_key with 'enter' after using
+    this tool.
 
     Args:
         terminal_id: The session's terminal ID.
-        text: Text to send. Include "<>enter<>" to simulate pressing Enter.
+        text: Text to send.
 
     Returns:
         Confirmation message.
 
+    Example:
+        input_text(terminal_id, "python3 script.py")
+        send_key(terminal_id, 'enter')
+
     """
-    manager.send_input(terminal_id, text)
+    manager.input_text(terminal_id, text)
     return f"Sent input to {terminal_id}."
+
+
+@mcp.tool()
+def send_key(terminal_id: str, key: str, modifiers: str | None = None) -> str:
+    """Send a key press event to a terminal session.
+
+    Args:
+        terminal_id: The session's terminal ID.
+        key: Named key or single letter. Named keys: enter, tab, escape, up,
+            down, left, right, backspace, delete, space. Use a single letter
+            (e.g. "c") combined with modifiers for shortcuts like ctrl+c.
+        modifiers: Optional comma-separated modifier string. Accepted values:
+            control, shift, option, command.
+
+    Returns:
+        Confirmation message.
+
+    Example:
+        send_key(terminal_id, 'enter')
+        send_key(terminal_id, 'c', modifiers='control')
+
+    """
+    manager.send_key(terminal_id, key, modifiers)
+    return f"Sent key '{key}' to {terminal_id}."
 
 
 @mcp.tool()
@@ -107,7 +142,6 @@ def list_sessions() -> list[dict[str, str | None]]:
         }
         for s in manager.list_sessions()
     ]
-
 
 
 # TODO(future): Add an `add_session` tool to let users adopt  # noqa: FIX002, TD003

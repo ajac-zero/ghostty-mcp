@@ -55,7 +55,9 @@ class SessionManager:
             terminal_id = self._bridge.create_window(config)
         elif surface_type == "split":
             terminal_id = self._bridge.create_split(
-                split_direction, config, terminal_id=split_target,
+                split_direction,
+                config,
+                terminal_id=split_target,
             )
         else:
             terminal_id = self._bridge.create_tab(config)
@@ -73,10 +75,20 @@ class SessionManager:
         self._sessions[terminal_id] = session
         return session
 
-    def send_input(self, terminal_id: str, text: str) -> None:
-        """Send text to a tracked session."""
+    def input_text(self, terminal_id: str, text: str) -> None:
+        """Send literal text to a tracked session."""
         self._require_session(terminal_id)
-        self._bridge.send_input(terminal_id, text)
+        self._bridge.input_text(terminal_id, text)
+
+    def send_key(
+        self,
+        terminal_id: str,
+        key: str,
+        modifiers: str | None = None,
+    ) -> None:
+        """Send a key event to a tracked session."""
+        self._require_session(terminal_id)
+        self._bridge.send_key(terminal_id, key, modifiers)
 
     def read_output(self, terminal_id: str) -> str:
         """Read the screen contents of a tracked session."""
@@ -85,11 +97,7 @@ class SessionManager:
 
     def list_sessions(self) -> list[Session]:
         """Return all tracked sessions, pruning any that no longer exist."""
-        dead = [
-            tid
-            for tid in self._sessions
-            if not self._bridge.terminal_exists(tid)
-        ]
+        dead = [tid for tid in self._sessions if not self._bridge.terminal_exists(tid)]
         for tid in dead:
             del self._sessions[tid]
         return list(self._sessions.values())
@@ -115,5 +123,3 @@ class SessionManager:
             if t.id == terminal_id:
                 return t
         return None
-
-

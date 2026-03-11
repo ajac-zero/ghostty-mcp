@@ -183,8 +183,7 @@ end tell"""
             )
         else:
             find_target = (
-                "    set targetTerm to focused terminal"
-                " of selected tab of front window"
+                "    set targetTerm to focused terminal of selected tab of front window"
             )
         script = f"""\
 tell application "Ghostty"
@@ -219,8 +218,8 @@ end tell"""
         if config.environment:
             env_items = [
                 (
-                    f'"{k.replace(chr(34), chr(92)+chr(34))}'
-                    f'={v.replace(chr(34), chr(92)+chr(34))}"'
+                    f'"{k.replace(chr(34), chr(92) + chr(34))}'
+                    f'={v.replace(chr(34), chr(92) + chr(34))}"'
                 )
                 for k, v in config.environment.items()
             ]
@@ -234,29 +233,47 @@ end tell"""
     # Input / Output
     # ------------------------------------------------------------------
 
-    def send_input(self, terminal_id: str, text: str) -> None:
-        """Send text input to a terminal.
-
-        The special token ``<>enter<>`` is converted to a ``send key "enter"``
-        event, allowing callers to submit commands while still supporting
-        literal newlines via ``input text``.
-        """
-        parts = text.split("<>enter<>")
-        commands: list[str] = []
-        for i, part in enumerate(parts):
-            if part:
-                escaped = part.replace("\\", "\\\\").replace('"', '\\"')
-                commands.append(f'input text "{escaped}" to term')
-            if i < len(parts) - 1:
-                commands.append('send key "enter" to term')
-        actions = "\n                    ".join(commands)
+    def input_text(self, terminal_id: str, text: str) -> None:
+        """Send literal text to a terminal (paste-style)."""
+        escaped = text.replace("\\", "\\\\").replace('"', '\\"')
         script = f"""\
 tell application "Ghostty"
     repeat with w in windows
         repeat with t in tabs of w
             repeat with term in terminals of t
                 if id of term is "{terminal_id}" then
-                    {actions}
+                    input text "{escaped}" to term
+                    return
+                end if
+            end repeat
+        end repeat
+    end repeat
+    error "Terminal not found: {terminal_id}"
+end tell"""
+        self._run_applescript(script)
+
+    def send_key(
+        self,
+        terminal_id: str,
+        key: str,
+        modifiers: str | None = None,
+    ) -> None:
+        """Send a key event to a terminal.
+
+        ``key`` is a named key (``enter``, ``tab``, ``escape``, ``up``,
+        ``down``, ``left``, ``right``, ``backspace``, ``delete``, ``space``)
+        or a single letter when used with ``modifiers``.
+        ``modifiers`` is an optional comma-separated string of modifier names
+        accepted by Ghostty: ``control``, ``shift``, ``option``, ``command``.
+        """
+        mod_part = f' modifiers "{modifiers}"' if modifiers else ""
+        script = f"""\
+tell application "Ghostty"
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with term in terminals of t
+                if id of term is "{terminal_id}" then
+                    send key "{key}"{mod_part} to term
                     return
                 end if
             end repeat
