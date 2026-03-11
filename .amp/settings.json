@@ -1,6 +1,6 @@
 {
   "amp.mcpServers": {
-    "ghostty-mcp": {
+    "ghostty": {
       "command": "uv",
       "args": ["run", "ghostty-mcp"]
     }

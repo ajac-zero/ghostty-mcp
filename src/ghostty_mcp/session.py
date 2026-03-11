@@ -45,9 +45,8 @@ class SessionManager:
     ) -> Session:
         """Create a new terminal session and start tracking it."""
         config = SurfaceConfig(
-            command=command,
             working_directory=working_directory or os.getcwd(),
-            wait_after_command=command is not None,
+            initial_input=f"{command}\n" if command else None,
             environment=environment or {},
         )
 
