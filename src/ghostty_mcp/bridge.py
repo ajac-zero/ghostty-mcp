@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -319,3 +320,27 @@ end tell"""
         finally:
             self._set_clipboard(saved_clipboard)
         return contents
+
+    def close_terminal(self, terminal_id: str) -> None:
+        """Close a terminal by its ID.
+
+        Removes the terminal from its containing tab/window.
+        If the terminal was the last one in a tab, the tab closes.
+        If the tab was the last one in a window, the window closes.
+        """
+        script = f"""\
+tell application "Ghostty"
+    repeat with w in windows
+        repeat with t in tabs of w
+            repeat with term in terminals of t
+                if id of term is "{terminal_id}" then
+                    close term
+                    return
+                end if
+            end repeat
+        end repeat
+    end repeat
+    error "Terminal not found: {terminal_id}"
+end tell"""
+        with contextlib.suppress(RuntimeError):
+            self._run_applescript(script)

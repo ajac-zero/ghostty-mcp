@@ -11,7 +11,8 @@ mcp = FastMCP(
     instructions=(
         "MCP server for managing Ghostty terminal sessions. "
         "Use create_session to start terminals, input_text to paste text, "
-        "send_key to send keyboard inputs (enter, ctrl+c, etc.), and read_output to see results."
+        "send_key to send keyboard inputs (enter, ctrl+c, etc.), "
+        "and read_output to see results."
     ),
 )
 manager = SessionManager()
@@ -142,6 +143,21 @@ def list_sessions() -> list[dict[str, str | None]]:
         }
         for s in manager.list_sessions()
     ]
+
+
+@mcp.tool()
+def close_session(terminal_id: str) -> str:
+    """Close a terminal session and remove it from tracking.
+
+    Args:
+        terminal_id: The session's terminal ID.
+
+    Returns:
+        Confirmation message.
+
+    """
+    manager.close_session(terminal_id)
+    return f"Closed session {terminal_id}."
 
 
 # TODO(future): Add an `add_session` tool to let users adopt  # noqa: FIX002, TD003

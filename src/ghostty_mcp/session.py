@@ -102,6 +102,20 @@ class SessionManager:
             del self._sessions[tid]
         return list(self._sessions.values())
 
+    def close_session(self, terminal_id: str) -> None:
+        """Close a session and remove it from tracking.
+
+        Args:
+            terminal_id: The ID of the terminal to close.
+
+        Raises:
+            KeyError: If the session is not being tracked.
+
+        """
+        self._require_session(terminal_id)
+        del self._sessions[terminal_id]
+        self._bridge.close_terminal(terminal_id)
+
     # TODO(future): Add `add_session` method once  # noqa: FIX002, TD003
     # Ghostty's AppleScript API supports user-set tab titles or another
     # discoverable identifier.
