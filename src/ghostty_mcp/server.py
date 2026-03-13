@@ -17,12 +17,13 @@ manager = SessionManager()
 
 
 @mcp.tool()
-def create_session(
+def create_session(  # noqa: PLR0913
     surface_type: str = "tab",
     command: str | None = None,
     working_directory: str | None = None,
     environment: dict[str, str] | None = None,
     split_direction: str = "right",
+    split_target: str | None = None,
 ) -> dict[str, str | None]:
     """Create a new Ghostty terminal session.
 
@@ -33,6 +34,8 @@ def create_session(
         environment: Additional environment variables as key-value pairs.
         split_direction: Split direction when surface_type is "split".
             One of "right", "left", "up", "down".
+        split_target: Terminal ID to split from when surface_type is "split".
+            If not provided, splits the currently focused terminal.
 
     Returns:
         Session info with terminal_id, name, working_directory, and command.
@@ -44,6 +47,7 @@ def create_session(
         working_directory=working_directory,
         environment=environment,
         split_direction=split_direction,
+        split_target=split_target,
     )
     return {
         "terminal_id": session.terminal_id,
@@ -87,16 +91,13 @@ def read_output(terminal_id: str) -> str:
 def list_sessions() -> list[dict[str, str | None]]:
     """List all tracked terminal sessions.
 
-    Dead sessions are automatically pruned. On a fresh server start,
-    this will also discover existing Ghostty terminals.
+    Only sessions created via create_session or added via add_session are
+    tracked. Dead sessions are automatically pruned.
 
     Returns:
         A list of session info dicts.
 
     """
-    sessions = manager.list_sessions()
-    if not sessions:
-        sessions = manager.discover_sessions()
     return [
         {
             "terminal_id": s.terminal_id,
@@ -104,5 +105,11 @@ def list_sessions() -> list[dict[str, str | None]]:
             "working_directory": s.working_directory,
             "command": s.command,
         }
-        for s in sessions
+        for s in manager.list_sessions()
     ]
+
+
+
+# TODO(future): Add an `add_session` tool to let users adopt  # noqa: FIX002, TD003
+# pre-existing terminals once Ghostty's AppleScript API supports user-set
+# tab titles or provides another discoverable identifier.

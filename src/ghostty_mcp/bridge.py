@@ -161,15 +161,37 @@ end tell"""
         self,
         direction: str = "right",
         config: SurfaceConfig | None = None,
+        terminal_id: str | None = None,
     ) -> str:
         """Open a new split and return its terminal id."""
         config = config or SurfaceConfig()
         config_block = self._build_config_block(config)
+        if terminal_id:
+            find_target = (
+                "    repeat with w in windows\n"
+                "        repeat with t in tabs of w\n"
+                "            repeat with term in terminals of t\n"
+                f'                if id of term is "{terminal_id}"'
+                " then\n"
+                "                    set targetTerm to term\n"
+                "                end if\n"
+                "            end repeat\n"
+                "        end repeat\n"
+                "    end repeat\n"
+                "    if targetTerm is missing value"
+                f' then error "Terminal not found: {terminal_id}"'
+            )
+        else:
+            find_target = (
+                "    set targetTerm to focused terminal"
+                " of selected tab of front window"
+            )
         script = f"""\
 tell application "Ghostty"
+    set targetTerm to missing value
     {config_block}
-    set currentTerm to focused terminal of selected tab of front window
-    set t2 to split currentTerm direction {direction} with configuration cfg
+    {find_target}
+    split targetTerm direction {direction} with configuration cfg
     delay 0.3
     set termId to id of focused terminal of selected tab of front window
     return termId
@@ -196,7 +218,10 @@ end tell"""
             lines.append("set wait after command of cfg to true")
         if config.environment:
             env_items = [
-                f'"{k.replace(chr(34), chr(92)+chr(34))}={v.replace(chr(34), chr(92)+chr(34))}"'
+                (
+                    f'"{k.replace(chr(34), chr(92)+chr(34))}'
+                    f'={v.replace(chr(34), chr(92)+chr(34))}"'
+                )
                 for k, v in config.environment.items()
             ]
             env_list = ", ".join(env_items)

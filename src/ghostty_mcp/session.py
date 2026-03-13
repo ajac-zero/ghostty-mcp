@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ghostty_mcp.bridge import GhosttyBridge, SurfaceConfig
@@ -34,7 +34,7 @@ class SessionManager:
     # Session lifecycle
     # ------------------------------------------------------------------
 
-    def create_session(
+    def create_session(  # noqa: PLR0913
         self,
         *,
         surface_type: str = "tab",
@@ -42,10 +42,11 @@ class SessionManager:
         working_directory: str | None = None,
         environment: dict[str, str] | None = None,
         split_direction: str = "right",
+        split_target: str | None = None,
     ) -> Session:
         """Create a new terminal session and start tracking it."""
         config = SurfaceConfig(
-            working_directory=working_directory or os.getcwd(),
+            working_directory=working_directory or str(Path.cwd()),
             initial_input=f"{command}\n" if command else None,
             environment=environment or {},
         )
@@ -53,7 +54,9 @@ class SessionManager:
         if surface_type == "window":
             terminal_id = self._bridge.create_window(config)
         elif surface_type == "split":
-            terminal_id = self._bridge.create_split(split_direction, config)
+            terminal_id = self._bridge.create_split(
+                split_direction, config, terminal_id=split_target,
+            )
         else:
             terminal_id = self._bridge.create_tab(config)
 
@@ -91,17 +94,9 @@ class SessionManager:
             del self._sessions[tid]
         return list(self._sessions.values())
 
-    def discover_sessions(self) -> list[Session]:
-        """Re-discover all Ghostty terminals and track them."""
-        terminals = self._bridge.list_terminals()
-        for info in terminals:
-            if info.id not in self._sessions:
-                self._sessions[info.id] = Session(
-                    terminal_id=info.id,
-                    name=info.name,
-                    working_directory=info.working_directory,
-                )
-        return self.list_sessions()
+    # TODO(future): Add `add_session` method once  # noqa: FIX002, TD003
+    # Ghostty's AppleScript API supports user-set tab titles or another
+    # discoverable identifier.
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -120,3 +115,5 @@ class SessionManager:
             if t.id == terminal_id:
                 return t
         return None
+
+
