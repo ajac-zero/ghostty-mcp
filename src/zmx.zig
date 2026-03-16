@@ -400,3 +400,155 @@ test "run payload includes completion marker" {
     try std.testing.expect(std.mem.endsWith(u8, payload, "\r"));
     try std.testing.expect(std.mem.indexOf(u8, payload, "ZMX_TASK_COMPLETED:") != null);
 }
+
+test "isValidSessionName accepts alphanumeric and separators" {
+    try std.testing.expect(isValidSessionName("my-session"));
+    try std.testing.expect(isValidSessionName("test_01"));
+    try std.testing.expect(isValidSessionName("a.b.c"));
+    try std.testing.expect(isValidSessionName("X"));
+}
+
+test "isValidSessionName rejects empty and special chars" {
+    try std.testing.expect(!isValidSessionName(""));
+    try std.testing.expect(!isValidSessionName("bad name"));
+    try std.testing.expect(!isValidSessionName("no/slash"));
+    try std.testing.expect(!isValidSessionName("a@b"));
+}
+
+test "expectedLength returns null for short data" {
+    try std.testing.expectEqual(@as(?usize, null), expectedLength(""));
+    try std.testing.expectEqual(@as(?usize, null), expectedLength("abc"));
+}
+
+test "expectedLength parses header correctly" {
+    const header = Header{ .tag = .Input, .len = 10 };
+    const bytes = std.mem.asBytes(&header);
+    try std.testing.expectEqual(@as(?usize, @sizeOf(Header) + 10), expectedLength(bytes));
+}
+
+test "SocketBuffer.next parses single message" {
+    const alloc = std.testing.allocator;
+    var sb = try SocketBuffer.init(alloc);
+    defer sb.deinit();
+
+    const payload = "hello";
+    const header = Header{ .tag = .Output, .len = @intCast(payload.len) };
+    try sb.buf.appendSlice(alloc, std.mem.asBytes(&header));
+    try sb.buf.appendSlice(alloc, payload);
+
+    const msg = sb.next();
+    try std.testing.expect(msg != null);
+    try std.testing.expectEqual(Tag.Output, msg.?.header.tag);
+    try std.testing.expectEqualStrings("hello", msg.?.payload);
+
+    // No more messages
+    try std.testing.expect(sb.next() == null);
+}
+
+test "SocketBuffer.next handles multiple messages" {
+    const alloc = std.testing.allocator;
+    var sb = try SocketBuffer.init(alloc);
+    defer sb.deinit();
+
+    // Write two messages back-to-back
+    const p1 = "abc";
+    const h1 = Header{ .tag = .Input, .len = @intCast(p1.len) };
+    try sb.buf.appendSlice(alloc, std.mem.asBytes(&h1));
+    try sb.buf.appendSlice(alloc, p1);
+
+    const p2 = "defgh";
+    const h2 = Header{ .tag = .Ack, .len = @intCast(p2.len) };
+    try sb.buf.appendSlice(alloc, std.mem.asBytes(&h2));
+    try sb.buf.appendSlice(alloc, p2);
+
+    const msg1 = sb.next();
+    try std.testing.expect(msg1 != null);
+    try std.testing.expectEqual(Tag.Input, msg1.?.header.tag);
+    try std.testing.expectEqualStrings("abc", msg1.?.payload);
+
+    const msg2 = sb.next();
+    try std.testing.expect(msg2 != null);
+    try std.testing.expectEqual(Tag.Ack, msg2.?.header.tag);
+    try std.testing.expectEqualStrings("defgh", msg2.?.payload);
+
+    try std.testing.expect(sb.next() == null);
+}
+
+test "SocketBuffer.next returns null for incomplete message" {
+    const alloc = std.testing.allocator;
+    var sb = try SocketBuffer.init(alloc);
+    defer sb.deinit();
+
+    // Header says 10 bytes payload but only provide 3
+    const header = Header{ .tag = .Output, .len = 10 };
+    try sb.buf.appendSlice(alloc, std.mem.asBytes(&header));
+    try sb.buf.appendSlice(alloc, "abc");
+
+    try std.testing.expect(sb.next() == null);
+}
+
+test "SocketBuffer.next handles zero-length payload" {
+    const alloc = std.testing.allocator;
+    var sb = try SocketBuffer.init(alloc);
+    defer sb.deinit();
+
+    const header = Header{ .tag = .Kill, .len = 0 };
+    try sb.buf.appendSlice(alloc, std.mem.asBytes(&header));
+
+    const msg = sb.next();
+    try std.testing.expect(msg != null);
+    try std.testing.expectEqual(Tag.Kill, msg.?.header.tag);
+    try std.testing.expectEqual(@as(usize, 0), msg.?.payload.len);
+}
+
+test "send writes header and payload to pipe" {
+    const fds = try posix.pipe();
+    defer posix.close(fds[0]);
+    defer posix.close(fds[1]);
+
+    const payload = "test data";
+    try send(fds[1], .Run, payload);
+
+    var read_buf: [@sizeOf(Header) + payload.len]u8 = undefined;
+    var total: usize = 0;
+    while (total < read_buf.len) {
+        const n = try posix.read(fds[0], read_buf[total..]);
+        if (n == 0) break;
+        total += n;
+    }
+    try std.testing.expectEqual(read_buf.len, total);
+
+    const hdr = std.mem.bytesToValue(Header, read_buf[0..@sizeOf(Header)]);
+    try std.testing.expectEqual(Tag.Run, hdr.tag);
+    try std.testing.expectEqual(@as(u32, payload.len), hdr.len);
+    try std.testing.expectEqualStrings(payload, read_buf[@sizeOf(Header)..]);
+}
+
+test "send writes header only for empty payload" {
+    const fds = try posix.pipe();
+    defer posix.close(fds[0]);
+    defer posix.close(fds[1]);
+
+    try send(fds[1], .Kill, "");
+
+    var read_buf: [@sizeOf(Header)]u8 = undefined;
+    var total: usize = 0;
+    while (total < read_buf.len) {
+        const n = try posix.read(fds[0], read_buf[total..]);
+        if (n == 0) break;
+        total += n;
+    }
+    try std.testing.expectEqual(@sizeOf(Header), total);
+
+    const hdr = std.mem.bytesToValue(Header, read_buf[0..@sizeOf(Header)]);
+    try std.testing.expectEqual(Tag.Kill, hdr.tag);
+    try std.testing.expectEqual(@as(u32, 0), hdr.len);
+}
+
+test "getSocketPath builds correct path" {
+    const alloc = std.testing.allocator;
+    const cfg = Config{ .socket_dir = @constCast("/tmp/zmx-501") };
+    const path = try getSocketPath(alloc, cfg, "my-session");
+    defer alloc.free(path);
+    try std.testing.expectEqualStrings("/tmp/zmx-501/my-session", path);
+}
