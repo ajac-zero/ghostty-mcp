@@ -32,8 +32,90 @@ const InboundFrame = struct {
     framing: MessageFraming,
 };
 
-const TOOLS_LIST_RESULT =
-    "{\"tools\":[" ++ "{\"name\":\"create_session\",\"description\":\"Create a zmx session by name and optionally run an initial command.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\",\"description\":\"Session name\"},\"command\":{\"type\":\"string\",\"description\":\"Optional initial command\"}},\"required\":[\"name\"]}}," ++ "{\"name\":\"input_text\",\"description\":\"Send raw text bytes into a zmx session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"}},\"required\":[\"name\",\"text\"]}}," ++ "{\"name\":\"send_key\",\"description\":\"Send a keypress to a session (named keys or single character with optional modifiers).\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"key\":{\"type\":\"string\"},\"modifiers\":{\"type\":\"string\",\"description\":\"Comma-separated: control,shift,option,command\"}},\"required\":[\"name\",\"key\"]}}," ++ "{\"name\":\"read_output\",\"description\":\"Read terminal history for a session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"format\":{\"type\":\"string\",\"description\":\"plain|vt|html\"}},\"required\":[\"name\"]}}," ++ "{\"name\":\"run_command\",\"description\":\"Execute a shell command in a session and wait for daemon Ack.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"command\":{\"type\":\"string\"}},\"required\":[\"name\",\"command\"]}}," ++ "{\"name\":\"wait_session\",\"description\":\"Poll session task state until completion (or timeout).\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"},\"timeout_ms\":{\"type\":\"integer\"}},\"required\":[\"name\"]}}," ++ "{\"name\":\"list_sessions\",\"description\":\"List discoverable zmx sessions from socket directory.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{}}}," ++ "{\"name\":\"kill_session\",\"description\":\"Kill a session process and detach clients.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}," ++ "{\"name\":\"close_session\",\"description\":\"Compatibility alias for kill_session.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"name\":{\"type\":\"string\"}},\"required\":[\"name\"]}}" ++ "]}";
+const ParamDef = struct {
+    name: []const u8,
+    type_name: []const u8,
+    description: ?[]const u8 = null,
+    required: bool = false,
+};
+
+const ToolDef = struct {
+    name: []const u8,
+    description: []const u8,
+    params: []const ParamDef = &.{},
+};
+
+const TOOLS = [_]ToolDef{
+    .{
+        .name = "create_session",
+        .description = "Create a zmx session by name and optionally run an initial command.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .description = "Session name", .required = true },
+            .{ .name = "command", .type_name = "string", .description = "Optional initial command" },
+        },
+    },
+    .{
+        .name = "input_text",
+        .description = "Send raw text bytes into a zmx session.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+            .{ .name = "text", .type_name = "string", .required = true },
+        },
+    },
+    .{
+        .name = "send_key",
+        .description = "Send a keypress to a session (named keys or single character with optional modifiers).",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+            .{ .name = "key", .type_name = "string", .required = true },
+            .{ .name = "modifiers", .type_name = "string", .description = "Comma-separated: control,shift,option,command" },
+        },
+    },
+    .{
+        .name = "read_output",
+        .description = "Read terminal history for a session.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+            .{ .name = "format", .type_name = "string", .description = "plain|vt|html" },
+        },
+    },
+    .{
+        .name = "run_command",
+        .description = "Execute a shell command in a session and wait for daemon Ack. Supply wait_for to block until a pattern appears in new output.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+            .{ .name = "command", .type_name = "string", .required = true },
+            .{ .name = "wait_for", .type_name = "string", .description = "Pattern to wait for in new terminal output before returning" },
+            .{ .name = "timeout_ms", .type_name = "integer", .description = "Max milliseconds to wait for the pattern (default 30000)" },
+        },
+    },
+    .{
+        .name = "wait_session",
+        .description = "Poll session task state until completion (or timeout).",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+            .{ .name = "timeout_ms", .type_name = "integer" },
+        },
+    },
+    .{
+        .name = "list_sessions",
+        .description = "List discoverable zmx sessions from socket directory.",
+    },
+    .{
+        .name = "kill_session",
+        .description = "Kill a session process and detach clients.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+        },
+    },
+    .{
+        .name = "close_session",
+        .description = "Compatibility alias for kill_session.",
+        .params = &.{
+            .{ .name = "name", .type_name = "string", .required = true },
+        },
+    },
+};
 
 pub fn main() !void {
     var gpa_state: std.heap.GeneralPurposeAllocator(.{}) = .{};
@@ -42,6 +124,9 @@ pub fn main() !void {
 
     var cfg = try zmx.resolveConfig(alloc);
     defer cfg.deinit(alloc);
+
+    const tools_list = try buildToolsListResult(alloc);
+    defer alloc.free(tools_list);
 
     var inbound = try std.ArrayList(u8).initCapacity(alloc, 8192);
     defer inbound.deinit(alloc);
@@ -63,7 +148,7 @@ pub fn main() !void {
             const frame = maybe_frame.?;
             defer alloc.free(frame.body);
 
-            const maybe_response = try handleMessage(alloc, cfg, frame.body);
+            const maybe_response = try handleMessage(alloc, cfg, tools_list, frame.body);
             if (maybe_response) |response| {
                 defer alloc.free(response);
                 try writeMcpFrame(posix.STDOUT_FILENO, alloc, response, frame.framing);
@@ -72,7 +157,7 @@ pub fn main() !void {
     }
 }
 
-fn handleMessage(alloc: std.mem.Allocator, cfg: zmx.Config, body: []const u8) !?[]u8 {
+fn handleMessage(alloc: std.mem.Allocator, cfg: zmx.Config, tools_list: []const u8, body: []const u8) !?[]u8 {
     const parsed = std.json.parseFromSlice(std.json.Value, alloc, body, .{}) catch {
         return try buildErrorResponse(alloc, "null", .{ .code = -32700, .message = "Parse error" });
     };
@@ -118,7 +203,7 @@ fn handleMessage(alloc: std.mem.Allocator, cfg: zmx.Config, body: []const u8) !?
 
     if (std.mem.eql(u8, method, "tools/list")) {
         if (id_value == null) return null;
-        return try buildSuccessResponse(alloc, id_json, TOOLS_LIST_RESULT);
+        return try buildSuccessResponse(alloc, id_json, tools_list);
     }
 
     if (std.mem.eql(u8, method, "tools/call")) {
@@ -217,9 +302,48 @@ fn dispatchTool(ctx: ToolCallContext, tool_name: []const u8, args: ?std.json.Obj
     if (std.mem.eql(u8, tool_name, "run_command")) {
         const name = getStringArg(args, "name") orelse return error.MissingSessionName;
         const command = getStringArg(args, "command") orelse return error.MissingCommand;
+        const wait_for = getStringArg(args, "wait_for");
+        const timeout_ms = getIntArg(args, "timeout_ms") orelse 30_000;
 
         try zmx.ensureSessionExists(ctx.alloc, ctx.cfg, name);
+
+        // Snapshot history length before the command so we only match against new output.
+        var history_offset: usize = 0;
+        if (wait_for != null) {
+            const pre = try zmx.readHistory(ctx.cfg, ctx.alloc, name, .plain);
+            history_offset = pre.len;
+            ctx.alloc.free(pre);
+        }
+
         try zmx.runCommand(ctx.alloc, ctx.cfg, name, command);
+
+        if (wait_for) |pattern| {
+            const deadline = std.time.milliTimestamp() + timeout_ms;
+            while (true) {
+                const history = try zmx.readHistory(ctx.cfg, ctx.alloc, name, .plain);
+                defer ctx.alloc.free(history);
+
+                // Clamp offset defensively in case the buffer shrank.
+                const offset = @min(history_offset, history.len);
+                const new_output = history[offset..];
+
+                if (std.mem.indexOf(u8, new_output, pattern) != null) {
+                    return toolTextResult(ctx.alloc, new_output);
+                }
+
+                if (std.time.milliTimestamp() >= deadline) {
+                    const msg = try std.fmt.allocPrint(
+                        ctx.alloc,
+                        "Timeout after {d}ms waiting for '{s}' in session '{s}'.",
+                        .{ timeout_ms, pattern, name },
+                    );
+                    defer ctx.alloc.free(msg);
+                    return toolTextResult(ctx.alloc, msg);
+                }
+
+                std.Thread.sleep(200 * std.time.ns_per_ms);
+            }
+        }
 
         const msg = try std.fmt.allocPrint(ctx.alloc, "Sent command to '{s}': {s}", .{ name, command });
         defer ctx.alloc.free(msg);
@@ -590,6 +714,72 @@ fn hexDigit(nibble: u8) u8 {
     return if (nibble < 10) '0' + nibble else 'A' + (nibble - 10);
 }
 
+fn buildToolsListResult(alloc: std.mem.Allocator) ![]u8 {
+    var out = std.ArrayList(u8).empty;
+    errdefer out.deinit(alloc);
+
+    try out.appendSlice(alloc, "{\"tools\":[");
+    for (TOOLS, 0..) |tool, i| {
+        if (i > 0) try out.append(alloc, ',');
+        try writeToolDef(alloc, &out, tool);
+    }
+    try out.appendSlice(alloc, "]}");
+
+    return out.toOwnedSlice(alloc);
+}
+
+fn writeToolDef(alloc: std.mem.Allocator, out: *std.ArrayList(u8), tool: ToolDef) !void {
+    const name_json = try quoteJsonString(alloc, tool.name);
+    defer alloc.free(name_json);
+    const desc_json = try quoteJsonString(alloc, tool.description);
+    defer alloc.free(desc_json);
+
+    try out.appendSlice(alloc, "{\"name\":");
+    try out.appendSlice(alloc, name_json);
+    try out.appendSlice(alloc, ",\"description\":");
+    try out.appendSlice(alloc, desc_json);
+    try out.appendSlice(alloc, ",\"inputSchema\":{\"type\":\"object\",\"properties\":{");
+
+    for (tool.params, 0..) |param, i| {
+        if (i > 0) try out.append(alloc, ',');
+
+        const pname_json = try quoteJsonString(alloc, param.name);
+        defer alloc.free(pname_json);
+        const ptype_json = try quoteJsonString(alloc, param.type_name);
+        defer alloc.free(ptype_json);
+
+        try out.appendSlice(alloc, pname_json);
+        try out.appendSlice(alloc, ":{\"type\":");
+        try out.appendSlice(alloc, ptype_json);
+        if (param.description) |desc| {
+            const pdesc_json = try quoteJsonString(alloc, desc);
+            defer alloc.free(pdesc_json);
+            try out.appendSlice(alloc, ",\"description\":");
+            try out.appendSlice(alloc, pdesc_json);
+        }
+        try out.append(alloc, '}');
+    }
+
+    try out.append(alloc, '}');
+
+    var first_required = true;
+    for (tool.params) |param| {
+        if (!param.required) continue;
+        if (first_required) {
+            try out.appendSlice(alloc, ",\"required\":[");
+            first_required = false;
+        } else {
+            try out.append(alloc, ',');
+        }
+        const req_json = try quoteJsonString(alloc, param.name);
+        defer alloc.free(req_json);
+        try out.appendSlice(alloc, req_json);
+    }
+    if (!first_required) try out.append(alloc, ']');
+
+    try out.appendSlice(alloc, "}}");
+}
+
 test "content length parser" {
     const headers = "Content-Length: 42\r\nFoo: bar";
     try std.testing.expectEqual(@as(?usize, 42), parseContentLength(headers));
@@ -632,17 +822,28 @@ test "pop content-length framed message" {
     try std.testing.expectEqual(@as(usize, 0), inbound.items.len);
 }
 
-test "tools list payload has no raw newlines" {
-    try std.testing.expect(std.mem.indexOfScalar(u8, TOOLS_LIST_RESULT, '\n') == null);
-    try std.testing.expect(std.mem.indexOfScalar(u8, TOOLS_LIST_RESULT, '\r') == null);
+test "buildToolsListResult produces single-line JSON with all tools" {
+    const alloc = std.testing.allocator;
+    const result = try buildToolsListResult(alloc);
+    defer alloc.free(result);
+
+    try std.testing.expect(std.mem.indexOfScalar(u8, result, '\n') == null);
+    try std.testing.expect(std.mem.indexOfScalar(u8, result, '\r') == null);
+    try std.testing.expect(std.mem.startsWith(u8, result, "{\"tools\":["));
+    try std.testing.expect(std.mem.endsWith(u8, result, "]}"));
+    for (TOOLS) |tool| {
+        try std.testing.expect(std.mem.indexOf(u8, result, tool.name) != null);
+    }
 }
 
 test "tools/list response is single-line jsonrpc" {
     const alloc = std.testing.allocator;
     const cfg = zmx.Config{ .socket_dir = "" };
+    const tools_list = try buildToolsListResult(alloc);
+    defer alloc.free(tools_list);
     const request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}";
 
-    const maybe_response = try handleMessage(alloc, cfg, request);
+    const maybe_response = try handleMessage(alloc, cfg, tools_list, request);
     try std.testing.expect(maybe_response != null);
     const response = maybe_response.?;
     defer alloc.free(response);
