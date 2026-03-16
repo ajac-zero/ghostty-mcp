@@ -1,0 +1,13 @@
+.{
+    .name = .ghostty_mcp,
+    .version = "0.1.0",
+    .minimum_zig_version = "0.15.0",
+    .fingerprint = 0xc0bf995bd7c2443a,
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "zig-src",
+        "README.md",
+    },
+}

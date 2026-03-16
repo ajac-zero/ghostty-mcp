@@ -1,8 +1,7 @@
 {
   "amp.mcpServers": {
     "ghostty": {
-      "command": "uv",
-      "args": ["run", "ghostty-mcp"]
+      "command": "/Users/ajac-zero/Developer/Sandbox/ghostty-mcp/zig-out/bin/ghostty-mcp"
     }
   }
 }
