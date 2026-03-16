@@ -237,6 +237,19 @@ pub fn killSession(cfg: Config, alloc: std.mem.Allocator, session_name: []const 
     defer posix.close(fd);
 
     try send(fd, .Kill, "");
+
+    // Poll until the session fully disappears from the listing,
+    // so the name is immediately available for reuse.
+    var attempts: u8 = 0;
+    while (attempts < 10) : (attempts += 1) {
+        std.Thread.sleep(100 * std.time.ns_per_ms);
+        const infos = listSessions(cfg, alloc) catch break;
+        defer deinitSessionInfos(alloc, infos);
+        const still_exists = for (infos) |s| {
+            if (std.mem.eql(u8, s.name, session_name)) break true;
+        } else false;
+        if (!still_exists) break;
+    }
 }
 
 pub fn readInfo(cfg: Config, alloc: std.mem.Allocator, session_name: []const u8) !Info {
